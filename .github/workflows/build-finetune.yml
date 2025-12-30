@@ -33,7 +33,8 @@ jobs:
       - name: Build llama-finetune
         run: |
           mkdir build && cd build
-          cmake .. -DGGML_METAL=ON -DLLAMA_BUILD_EXAMPLES=ON -DLLAMA_BUILD_TOOLS=ON
+          # Build with static linking so the binary is self-contained
+          cmake .. -DGGML_METAL=ON -DLLAMA_BUILD_EXAMPLES=ON -DLLAMA_BUILD_TOOLS=ON -DBUILD_SHARED_LIBS=OFF -DLLAMA_STATIC=ON
           cmake --build . --config Release -j$(sysctl -n hw.ncpu)
           # List what was built
           ls -la bin/ || true
