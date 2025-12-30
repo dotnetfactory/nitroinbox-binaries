@@ -1,10 +1,8 @@
-# GitHub Actions workflow to build llama-finetune binary for all platforms
+# GitHub Actions workflow to build llama-finetune binary for macOS Apple Silicon
 #
 # Usage:
-# 1. Create a new repo (e.g., nitroinbox-binaries)
-# 2. Copy this file to .github/workflows/build-finetune.yml
-# 3. Go to Actions tab and manually trigger "Build llama-finetune"
-# 4. Download artifacts and create a release with them
+# 1. Go to Actions tab and manually trigger "Build llama-finetune"
+# 2. The workflow will build, package, and create a release
 #
 # This is a one-time build workflow (manual trigger only)
 
@@ -16,7 +14,7 @@ on:
       llama_cpp_ref:
         description: 'llama.cpp git ref (tag, branch, or commit)'
         required: true
-        default: 'b4547'
+        default: 'master'
       release_version:
         description: 'Release version tag (e.g., v1.0.0)'
         required: true
@@ -35,13 +33,24 @@ jobs:
       - name: Build llama-finetune
         run: |
           mkdir build && cd build
-          cmake .. -DGGML_METAL=ON -DLLAMA_BUILD_EXAMPLES=ON
-          cmake --build . --config Release --target llama-finetune -j$(sysctl -n hw.ncpu)
+          cmake .. -DGGML_METAL=ON -DLLAMA_BUILD_EXAMPLES=ON -DLLAMA_BUILD_TOOLS=ON
+          cmake --build . --config Release -j$(sysctl -n hw.ncpu)
+          # List what was built
+          ls -la bin/ || true
+          find . -name "llama-finetune" -o -name "*finetune*" | head -20
 
       - name: Package binary
         run: |
           mkdir -p dist
-          cp build/bin/llama-finetune dist/
+          # Find the finetune binary wherever it may be
+          BINARY=$(find build -name "llama-finetune" -type f | head -1)
+          if [ -z "$BINARY" ]; then
+            echo "llama-finetune not found, listing all binaries:"
+            find build -type f -perm +111 | head -30
+            exit 1
+          fi
+          cp "$BINARY" dist/llama-finetune
+          chmod +x dist/llama-finetune
           cd dist
           zip llama-finetune-macos-arm64.zip llama-finetune
 
@@ -51,102 +60,8 @@ jobs:
           name: llama-finetune-macos-arm64
           path: dist/llama-finetune-macos-arm64.zip
 
-  build-macos-x64:
-    runs-on: macos-13  # Intel runner
-    steps:
-      - name: Checkout llama.cpp
-        uses: actions/checkout@v4
-        with:
-          repository: ggerganov/llama.cpp
-          ref: ${{ github.event.inputs.llama_cpp_ref }}
-
-      - name: Build llama-finetune
-        run: |
-          mkdir build && cd build
-          cmake .. -DGGML_METAL=ON -DLLAMA_BUILD_EXAMPLES=ON
-          cmake --build . --config Release --target llama-finetune -j$(sysctl -n hw.ncpu)
-
-      - name: Package binary
-        run: |
-          mkdir -p dist
-          cp build/bin/llama-finetune dist/
-          cd dist
-          zip llama-finetune-macos-x64.zip llama-finetune
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: llama-finetune-macos-x64
-          path: dist/llama-finetune-macos-x64.zip
-
-  build-linux-x64:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout llama.cpp
-        uses: actions/checkout@v4
-        with:
-          repository: ggerganov/llama.cpp
-          ref: ${{ github.event.inputs.llama_cpp_ref }}
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake
-
-      - name: Build llama-finetune
-        run: |
-          mkdir build && cd build
-          cmake .. -DLLAMA_BUILD_EXAMPLES=ON
-          cmake --build . --config Release --target llama-finetune -j$(nproc)
-
-      - name: Package binary
-        run: |
-          mkdir -p dist
-          cp build/bin/llama-finetune dist/
-          cd dist
-          zip llama-finetune-linux-x64.zip llama-finetune
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: llama-finetune-linux-x64
-          path: dist/llama-finetune-linux-x64.zip
-
-  build-linux-arm64:
-    runs-on: ubuntu-22.04-arm  # ARM runner
-    steps:
-      - name: Checkout llama.cpp
-        uses: actions/checkout@v4
-        with:
-          repository: ggerganov/llama.cpp
-          ref: ${{ github.event.inputs.llama_cpp_ref }}
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake
-
-      - name: Build llama-finetune
-        run: |
-          mkdir build && cd build
-          cmake .. -DLLAMA_BUILD_EXAMPLES=ON
-          cmake --build . --config Release --target llama-finetune -j$(nproc)
-
-      - name: Package binary
-        run: |
-          mkdir -p dist
-          cp build/bin/llama-finetune dist/
-          cd dist
-          zip llama-finetune-linux-arm64.zip llama-finetune
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: llama-finetune-linux-arm64
-          path: dist/llama-finetune-linux-arm64.zip
-
   create-release:
-    needs: [build-macos-arm64, build-macos-x64, build-linux-x64, build-linux-arm64]
+    needs: [build-macos-arm64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -166,9 +81,6 @@ jobs:
 
             ## Platforms
             - `llama-finetune-macos-arm64.zip` - macOS Apple Silicon (M1/M2/M3)
-            - `llama-finetune-macos-x64.zip` - macOS Intel
-            - `llama-finetune-linux-x64.zip` - Linux x64
-            - `llama-finetune-linux-arm64.zip` - Linux ARM64
 
             ## Usage
             Extract the zip and run:
@@ -178,6 +90,3 @@ jobs:
             ```
           files: |
             artifacts/llama-finetune-macos-arm64/llama-finetune-macos-arm64.zip
-            artifacts/llama-finetune-macos-x64/llama-finetune-macos-x64.zip
-            artifacts/llama-finetune-linux-x64/llama-finetune-linux-x64.zip
-            artifacts/llama-finetune-linux-arm64/llama-finetune-linux-arm64.zip
